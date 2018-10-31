@@ -1,4 +1,6 @@
-const connect = require("pull-ws/client");
+const wsSource = require('pull-ws/source');
+const wsSink = require("pull-ws");
+const Websocket = require("ws");
 const pull = require("pull-stream");
 const {tap} = require("pull-tap");
 const Pushable = require("pull-pushable");
@@ -44,37 +46,32 @@ const challenge = {
   })
 };
 
-connect(
-  "ws://127.0.0.1:3030",
-  {
-    onConnect: (err, stream) => {
-      if (err) throw err; //handle err
-      console.log("connected");
-      /* send stream */
-      pull(
-        sendStream,
-        tap(o => console.log("sent:", o)),
-        pull.map(JSON.stringify),
-        stream
-      );
-      /* recv stream */
-      pull(
-        stream,
-        pull.map(o => JSON.parse(o)),
-        pull.drain(o => {
-          console.log("recv:", o);
-          if (o.janus === 'success') {
-            if (!o.session_id) {
-              sendStream.push(challenge.attach(o))
-            } else if (!o.sender) {
-              sendStream.push(challenge.message({...o, roomId: 1}))
-            } else {
-              console.log("that's all folks. success!");
-            }
-          }
-        })
-      );
-      sendStream.push(challenge.create())
-    }
-  }
+const socket = new Websocket('ws://127.0.0.1:3030');
+
+// sendStream
+pull(
+  sendStream,
+  tap(o => console.log("sent:", o)),
+  pull.map(JSON.stringify),
+  wsSink(socket)
 );
+
+// recvStream
+pull(
+  wsSource(socket),
+  pull.map(o => JSON.parse(o)),
+  pull.drain(o => {
+    console.log("recv:", o);
+    if (o.janus === 'success') {
+      if (!o.session_id) {
+        sendStream.push(challenge.attach(o))
+      } else if (!o.sender) {
+        sendStream.push(challenge.message({...o, roomId: 1}))
+      } else {
+        console.log("that's all folks. success!");
+      }
+    }
+  })
+);
+
+sendStream.push(challenge.create());
